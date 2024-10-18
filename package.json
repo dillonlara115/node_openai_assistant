@@ -34,7 +34,7 @@
     "clean": "lb-clean dist *.tsbuildinfo .eslintcache",
     "rebuild": "npm run build",
     "postinstall": "npm run build",
-    "start:prod": "node public/index.html"
+    "start:prod": "node -r source-map-support/register ."
   },
   "repository": {
     "type": "git",
