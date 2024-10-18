@@ -34,7 +34,7 @@
     "clean": "lb-clean dist *.tsbuildinfo .eslintcache",
     "rebuild": "npm run clean && npm run build",
     "postinstall": "npm run build",
-    "start:prod": "node dist/index.js"
+    "start:prod": "node public/index.html"
   },
   "repository": {
     "type": "git",
