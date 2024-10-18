@@ -1,0 +1,99 @@
+import {post, requestBody} from '@loopback/rest';
+import axios from 'axios';
+import OpenAI from 'openai';
+
+export class SendMessageController {
+  @post('/api/send-message')
+  async sendMessage(
+    @requestBody({
+      content: {
+        'application/json': {
+          schema: {
+            type: 'object',
+            properties: {
+              message: {type: 'string'},
+              assistantId: {type: 'string'},
+              threadId: {type: 'string'},
+              apiKeyName: {type: 'string'},
+              wordpressUrl: {type: 'string'},
+              apiToken: {type: 'string'}, // Add this line
+            },
+            required: ['message', 'assistantId', 'apiKeyName', 'wordpressUrl', 'apiToken'], // Add 'apiToken' here
+          },
+        },
+      },
+    })
+    data: {
+      message: string;
+      assistantId: string;
+      threadId?: string;
+      apiKeyName: string;
+      wordpressUrl: string;
+      apiToken: string; // Add this line
+    },
+  ): Promise<object> {
+    try {
+      console.log('Attempting to fetch API key from WordPress');
+      console.log('WordPress URL:', data.wordpressUrl);
+
+      // Fetch the API key from WordPress without authentication
+      const response = await axios.get(
+        `${data.wordpressUrl}/wp-json/openai-chatbot/v1/api-keys`, {
+        headers: {
+          'X-GPT-Chat-Token': data.apiToken
+        }
+      }
+      );
+
+      console.log('API key fetch response status:', response.status);
+      console.log('API key fetch response data:', response.data);
+
+      const apiKey = response.data.apiKey;
+
+      if (!apiKey) {
+        throw new Error('API key not found in WordPress response');
+      }
+
+      const openai = new OpenAI({
+        apiKey: apiKey,
+      });
+
+      // Create a new thread or use the existing one
+      const thread = data.threadId
+        ? await openai.beta.threads.retrieve(data.threadId)
+        : await openai.beta.threads.create();
+
+      // Add the user's message to the thread
+      await openai.beta.threads.messages.create(thread.id, {
+        role: 'user',
+        content: data.message,
+      });
+
+      // Run the assistant
+      const run = await openai.beta.threads.runs.create(thread.id, {
+        assistant_id: data.assistantId,
+      });
+
+      return {
+        success: true,
+        message: 'Message sent and assistant run initiated',
+        threadId: thread.id,
+        runId: run.id,
+      };
+    } catch (error) {
+      console.error('Error in sendMessage:', error);
+      if (axios.isAxiosError(error)) {
+        console.error('Axios error details:', {
+          status: error.response?.status,
+          statusText: error.response?.statusText,
+          data: error.response?.data,
+        });
+      }
+      return {
+        success: false,
+        message: 'Error processing the message',
+        error: error.message,
+      };
+    }
+  }
+}
