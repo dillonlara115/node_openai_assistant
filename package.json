@@ -12,7 +12,7 @@
     "node": "18 || 20 || 22"
   },
   "scripts": {
-    "build": "lb-tsc",
+    "build": "tsc",
     "build:watch": "lb-tsc --watch",
     "lint": "npm run eslint && npm run prettier:check",
     "lint:fix": "npm run eslint:fix && npm run prettier:fix",
@@ -30,7 +30,7 @@
     "preopenapi-spec": "npm run build",
     "openapi-spec": "node ./dist/openapi-spec",
     "prestart": "npm run rebuild",
-    "start": "node --env-file=.env dist/index.js",
+    "start": "node -r source-map-support/register .",
     "clean": "lb-clean dist *.tsbuildinfo .eslintcache",
     "rebuild": "npm run build",
     "postinstall": "npm run build",
@@ -63,7 +63,7 @@
     "@loopback/build": "^11.0.6",
     "@loopback/eslint-config": "^15.0.4",
     "@loopback/testlab": "^7.0.6",
-    "@types/node": "^16.18.114",
+    "@types/node": "^16.18.101",
     "eslint": "^8.57.0",
     "source-map-support": "^0.5.21",
     "typescript": "~5.2.2"
