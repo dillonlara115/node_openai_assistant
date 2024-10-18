@@ -33,7 +33,7 @@
     "start": "node -r source-map-support/register .",
     "clean": "lb-clean dist *.tsbuildinfo .eslintcache",
     "rebuild": "npm run build",
-    "postinstall": "npm run build",
+    "postinstall": "tsc",
     "start:prod": "node dist/index.js"
   },
   "repository": {
