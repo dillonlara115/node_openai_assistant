@@ -12,7 +12,7 @@
     "node": "18 || 20 || 22"
   },
   "scripts": {
-    "build": "npx tsc",
+    "build": "tsc",
     "build:watch": "lb-tsc --watch",
     "lint": "npm run eslint && npm run prettier:check",
     "lint:fix": "npm run eslint:fix && npm run prettier:fix",
@@ -58,7 +58,8 @@
     "@loopback/service-proxy": "^7.0.7",
     "axios": "^1.7.7",
     "openai": "^4.67.3",
-    "tslib": "^2.0.0"
+    "tslib": "^2.0.0",
+    "typescript": "~5.2.2"
   },
   "devDependencies": {
     "@loopback/build": "^11.0.6",
