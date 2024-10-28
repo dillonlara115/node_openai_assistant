@@ -76,47 +76,39 @@ export class MessageController {
           console.log('Tool calls:', toolCalls);
 
           if (toolCalls) {
-            for (const toolCall of toolCalls) {
-              if (toolCall.function.name === 'submit_branding_report_to_zapier') {
-                try {
-                  // Handle the function call directly instead of emitting an event
-                  const args = JSON.parse(toolCall.function.arguments);
-                  console.log('Function arguments:', args);
+            // Process all tool calls and collect their outputs
+            const toolOutputs = await Promise.all(toolCalls.map(async (toolCall) => {
+              console.log('Processing tool call:', toolCall.function.name);
 
-                  // Make the API call directly
-                  const response = await axios.post(
-                    'https://mixituponline.com/wp-json/brand-voice/v1/submit',
-                    args
-                  );
-                  console.log('API Response:', response.data);
+              try {
+                const args = JSON.parse(toolCall.function.arguments);
+                console.log('Function arguments for', toolCall.id, ':', args);
 
-                  // Submit the result back to the assistant
-                  await this.openai.beta.threads.runs.submitToolOutputs(
-                    threadId,
-                    runId,
-                    {
-                      tool_outputs: [{
-                        tool_call_id: toolCall.id,
-                        output: JSON.stringify(response.data)
-                      }]
-                    }
-                  );
-                } catch (error) {
-                  console.error('Error in function call:', error);
-                  // Submit error result back to assistant
-                  await this.openai.beta.threads.runs.submitToolOutputs(
-                    threadId,
-                    runId,
-                    {
-                      tool_outputs: [{
-                        tool_call_id: toolCall.id,
-                        output: JSON.stringify({error: 'Failed to process report'})
-                      }]
-                    }
-                  );
-                }
+                const response = await axios.post(
+                  'https://mixituponline.com/wp-json/brand-voice/v1/submit',
+                  args
+                );
+                console.log('API Response for', toolCall.id, ':', response.data);
+
+                return {
+                  tool_call_id: toolCall.id,
+                  output: JSON.stringify(response.data)
+                };
+              } catch (error) {
+                console.error('Error in function call:', error);
+                return {
+                  tool_call_id: toolCall.id,
+                  output: JSON.stringify({error: 'Failed to process report'})
+                };
               }
-            }
+            }));
+
+            // Submit all tool outputs together
+            await this.openai.beta.threads.runs.submitToolOutputs(
+              threadId,
+              runId,
+              {tool_outputs: toolOutputs}
+            );
           }
         }
         return run;
