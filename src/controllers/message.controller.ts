@@ -13,7 +13,7 @@ export class MessageController {
     return {message: 'Hello from LoopBack'};
   }
 
-  @post('api/run-assistant')
+  @post('/api/run-assistant')
   async runAssistant(
     @requestBody({
       content: {
@@ -77,33 +77,44 @@ export class MessageController {
 
           if (toolCalls) {
             for (const toolCall of toolCalls) {
-              console.log('Processing tool call:', toolCall.function.name);
-
               if (toolCall.function.name === 'submit_branding_report_to_zapier') {
-                // Emit event with necessary data
-                assistantEvents.emit('brandingReport', {
-                  threadId,
-                  runId,
-                  toolCallId: toolCall.id,
-                  arguments: JSON.parse(toolCall.function.arguments)
-                });
+                try {
+                  // Handle the function call directly instead of emitting an event
+                  const args = JSON.parse(toolCall.function.arguments);
+                  console.log('Function arguments:', args);
 
-                // Wait for the response
-                const result = await new Promise((resolve) => {
-                  assistantEvents.once('brandingReportComplete', resolve);
-                });
+                  // Make the API call directly
+                  const response = await axios.post(
+                    'https://mixituponline.com/wp-json/brand-voice/v1/submit',
+                    args
+                  );
+                  console.log('API Response:', response.data);
 
-                // Submit the result back to the assistant
-                await this.openai.beta.threads.runs.submitToolOutputs(
-                  threadId,
-                  runId,
-                  {
-                    tool_outputs: [{
-                      tool_call_id: toolCall.id,
-                      output: JSON.stringify(result)
-                    }]
-                  }
-                );
+                  // Submit the result back to the assistant
+                  await this.openai.beta.threads.runs.submitToolOutputs(
+                    threadId,
+                    runId,
+                    {
+                      tool_outputs: [{
+                        tool_call_id: toolCall.id,
+                        output: JSON.stringify(response.data)
+                      }]
+                    }
+                  );
+                } catch (error) {
+                  console.error('Error in function call:', error);
+                  // Submit error result back to assistant
+                  await this.openai.beta.threads.runs.submitToolOutputs(
+                    threadId,
+                    runId,
+                    {
+                      tool_outputs: [{
+                        tool_call_id: toolCall.id,
+                        output: JSON.stringify({error: 'Failed to process report'})
+                      }]
+                    }
+                  );
+                }
               }
             }
           }
