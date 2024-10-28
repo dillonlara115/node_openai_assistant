@@ -130,7 +130,7 @@ export class MessageController {
         runId: currentRun.id,
         status: currentRun.status,
         allMessages: messages.data, // Changed from 'message' to 'response'
-        messages: messageContent  // Adding full messages array if needed
+        messages: [messageContent]  // Adding full messages array if needed
       };
     } catch (error) {
       console.error('Error running assistant:', error);
