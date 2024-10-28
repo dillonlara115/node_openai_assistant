@@ -119,7 +119,7 @@ export class MessageController {
         currentRun = await checkRunStatus(thread.id, initialRun.id);
       }
 
-      onst messages = await this.openai.beta.threads.messages.list(thread.id);
+      const messages = await this.openai.beta.threads.messages.list(thread.id);
       const lastMessage = messages.data[0]?.content[0];
       const messageContent = lastMessage && 'text' in lastMessage ? lastMessage.text.value : '';
 
