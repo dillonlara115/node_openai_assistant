@@ -119,17 +119,18 @@ export class MessageController {
         currentRun = await checkRunStatus(thread.id, initialRun.id);
       }
 
-      // Fetch the messages after the run is complete
-      const messages = await this.openai.beta.threads.messages.list(thread.id);
+      onst messages = await this.openai.beta.threads.messages.list(thread.id);
       const lastMessage = messages.data[0]?.content[0];
       const messageContent = lastMessage && 'text' in lastMessage ? lastMessage.text.value : '';
 
+      // Update the return structure to match what the chatbot expects
       return {
         success: true,
         threadId: thread.id,
         runId: currentRun.id,
         status: currentRun.status,
-        message: messageContent,
+        response: messageContent, // Changed from 'message' to 'response'
+        messages: messages.data  // Adding full messages array if needed
       };
     } catch (error) {
       console.error('Error running assistant:', error);
