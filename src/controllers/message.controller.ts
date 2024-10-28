@@ -85,22 +85,20 @@ export class MessageController {
         if (delta.value) {
           accumulatedText += delta.value;
         }
-        console.log('Received text delta:', delta.value);
       });
 
       run.on('messageDelta', (delta, snapshot) => {
         // Process any message-level deltas
-        console.log('Received message delta:', delta);
       });
 
       run.on('event', (event) => {
         // Log any events that occur during the stream
-        console.log('Received event:', event);
+        // console.log('Received event:', event);
       });
 
       run.on('run', (run) => {
         // Log when the run completes
-        console.log('Run completed:', run);
+        //console.log('Run completed:', run);
       });
 
       const finalResult = await run.finalRun(); // Wait for the stream to complete
