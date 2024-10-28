@@ -13,7 +13,7 @@ export class MessageController {
     return {message: 'Hello from LoopBack'};
   }
 
-  @post('/api/run-assistant')
+  @post('api/run-assistant')
   async runAssistant(
     @requestBody({
       content: {
@@ -50,7 +50,7 @@ export class MessageController {
       }
 
       // Initialize OpenAI client
-      this.openai = new OpenAI({apiKey});
+      this.openai = new OpenAI({apiKey, maxRetries: 4});
 
       // Get or create thread
       let thread;
