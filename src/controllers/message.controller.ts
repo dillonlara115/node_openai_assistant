@@ -1,6 +1,9 @@
 import {get, post, requestBody} from '@loopback/rest';
 import axios from 'axios';
+import EventEmitter from 'events';
 import OpenAI from 'openai';
+
+export const assistantEvents = new EventEmitter();
 
 export class MessageController {
   private openai: OpenAI;
@@ -77,29 +80,30 @@ export class MessageController {
               console.log('Processing tool call:', toolCall.function.name);
 
               if (toolCall.function.name === 'submit_branding_report_to_zapier') {
-                try {
-                  const args = JSON.parse(toolCall.function.arguments);
-                  console.log('Function arguments:', args);
+                // Emit event with necessary data
+                assistantEvents.emit('brandingReport', {
+                  threadId,
+                  runId,
+                  toolCallId: toolCall.id,
+                  arguments: JSON.parse(toolCall.function.arguments)
+                });
 
-                  const response = await axios.post(
-                    'https://mixituponline.com/wp-json/brand-voice/v1/submit',
-                    args
-                  );
-                  console.log('API Response:', response.data);
+                // Wait for the response
+                const result = await new Promise((resolve) => {
+                  assistantEvents.once('brandingReportComplete', resolve);
+                });
 
-                  await this.openai.beta.threads.runs.submitToolOutputs(
-                    threadId,
-                    runId,
-                    {
-                      tool_outputs: [{
-                        tool_call_id: toolCall.id,
-                        output: JSON.stringify(response.data)
-                      }]
-                    }
-                  );
-                } catch (error) {
-                  console.error('Error processing function call:', error);
-                }
+                // Submit the result back to the assistant
+                await this.openai.beta.threads.runs.submitToolOutputs(
+                  threadId,
+                  runId,
+                  {
+                    tool_outputs: [{
+                      tool_call_id: toolCall.id,
+                      output: JSON.stringify(result)
+                    }]
+                  }
+                );
               }
             }
           }
