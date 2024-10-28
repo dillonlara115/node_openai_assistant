@@ -40,76 +40,96 @@ export class MessageController {
     try {
       console.log('Received data:', data);
 
-      // Fetch the OpenAI API key from WordPress using the provided key name
+      // Fetch the OpenAI API key from WordPress
       const apiKey = await this.fetchApiKeyFromWordPress(data.wordpressUrl, data.apiKeyName);
-
       if (!apiKey) {
         throw new Error('API key not found');
       }
 
-      // Initialize OpenAI client with the fetched API key
-      this.openai = new OpenAI({
-        apiKey: apiKey,
-      });
+      // Initialize OpenAI client
+      this.openai = new OpenAI({apiKey});
 
-
+      // Get or create thread
       let thread;
       if (data.threadId && data.threadId !== '') {
-        // Use existing thread
         thread = await this.openai.beta.threads.retrieve(data.threadId);
-        if (!thread) {
-          throw new Error(`Thread with ID ${data.threadId} not found`);
-        }
       } else {
-        // Create a new thread
         thread = await this.openai.beta.threads.create();
       }
 
-
-      // Add the initial message to the thread
+      // Add the user message to the thread
       await this.openai.beta.threads.messages.create(thread.id, {
         role: 'user',
         content: data.message,
       });
 
-      // Step 4: Stream the assistant's response
-      const run = this.openai.beta.threads.runs.stream(thread.id, {
+      // Create a function to check run status
+      const checkRunStatus = async (threadId: string, runId: string) => {
+        const run = await this.openai.beta.threads.runs.retrieve(threadId, runId);
+        console.log('Run status:', run.status);
+
+        if (run.status === 'requires_action') {
+          const toolCalls = run.required_action?.submit_tool_outputs.tool_calls;
+          console.log('Tool calls:', toolCalls);
+
+          if (toolCalls) {
+            for (const toolCall of toolCalls) {
+              console.log('Processing tool call:', toolCall.function.name);
+
+              if (toolCall.function.name === 'submit_branding_report_to_zapier') {
+                try {
+                  const args = JSON.parse(toolCall.function.arguments);
+                  console.log('Function arguments:', args);
+
+                  const response = await axios.post(
+                    'https://mixituponline.com/wp-json/brand-voice/v1/submit',
+                    args
+                  );
+                  console.log('API Response:', response.data);
+
+                  await this.openai.beta.threads.runs.submitToolOutputs(
+                    threadId,
+                    runId,
+                    {
+                      tool_outputs: [{
+                        tool_call_id: toolCall.id,
+                        output: JSON.stringify(response.data)
+                      }]
+                    }
+                  );
+                } catch (error) {
+                  console.error('Error processing function call:', error);
+                }
+              }
+            }
+          }
+        }
+        return run;
+      };
+
+      // Start the run
+      const initialRun = await this.openai.beta.threads.runs.create(thread.id, {
         assistant_id: data.assistantId,
       });
 
-      // NEW: Initialize an empty string to accumulate the text from deltas
-      let accumulatedText = '';
+      // Poll for completion or required actions
+      let currentRun = await checkRunStatus(thread.id, initialRun.id);
+      while (currentRun.status === 'in_progress' || currentRun.status === 'queued') {
+        await new Promise(resolve => setTimeout(resolve, 1000));
+        currentRun = await checkRunStatus(thread.id, initialRun.id);
+      }
 
-      run.on('textDelta', (delta) => {
-        // Access the 'value' directly from the delta object
-        if (delta.value) {
-          accumulatedText += delta.value;
-        }
-      });
+      // Fetch the messages after the run is complete
+      const messages = await this.openai.beta.threads.messages.list(thread.id);
+      const lastMessage = messages.data[0]?.content[0];
+      const messageContent = lastMessage && 'text' in lastMessage ? lastMessage.text.value : '';
 
-      run.on('messageDelta', (delta, snapshot) => {
-        // Process any message-level deltas
-      });
-
-      run.on('event', (event) => {
-        // Log any events that occur during the stream
-        // console.log('Received event:', event);
-      });
-
-      run.on('run', (run) => {
-        // Log when the run completes
-        //console.log('Run completed:', run);
-      });
-
-      const finalResult = await run.finalRun(); // Wait for the stream to complete
-      console.log('Final run result:', finalResult);
-
-      // Step 5: Return the accumulated text after streaming completes
       return {
         success: true,
         threadId: thread.id,
-        runResult: finalResult,  // You can return any useful metadata from the final result here
-        messages: [accumulatedText],  // Return the full accumulated message as an array
+        runId: currentRun.id,
+        status: currentRun.status,
+        message: messageContent,
       };
     } catch (error) {
       console.error('Error running assistant:', error);
@@ -117,12 +137,6 @@ export class MessageController {
     }
   }
 
-  /**
-   * Fetches the OpenAI API key from the WordPress plugin.
-   * @param wordpressUrl The base URL of the WordPress site.
-   * @param apiKeyName The name of the API key to retrieve.
-   * @returns The API key string.
-   */
   private async fetchApiKeyFromWordPress(wordpressUrl: string, apiKeyName: string): Promise<string | null> {
     console.log('Fetching API key from WordPress:', wordpressUrl, apiKeyName);
     try {
@@ -133,7 +147,6 @@ export class MessageController {
         }
       );
       console.log('API key fetch response:', response.data.apiKey);
-
       return response.data.apiKey || null;
     } catch (error) {
       console.error('Failed to fetch API key from WordPress:', error);
