@@ -21,7 +21,7 @@ export class MessageController {
               message: {type: 'string'},
               assistantId: {type: 'string'},
               threadId: {type: 'string'},
-              apiKeyName: {type: 'string'}, // NEW: API key name sent with request
+              apiKeyName: {type: 'string'},
               wordpressUrl: {type: 'string'}
             },
             required: ['message', 'assistantId', 'apiKeyName', 'wordpressUrl'],
