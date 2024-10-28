@@ -36,6 +36,7 @@ export class OpenaiVercelApplication extends BootMixin(
       preflightContinue: false,
       optionsSuccessStatus: 204,
       maxAge: 86400,
+      allowedHeaders: 'Content-Type,Authorization',
       credentials: true,
     });
 
