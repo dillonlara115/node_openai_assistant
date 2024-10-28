@@ -109,6 +109,9 @@ export class MessageController {
               runId,
               {tool_outputs: toolOutputs}
             );
+
+            // Get updated run status after submitting tool outputs
+            return this.openai.beta.threads.runs.retrieve(threadId, runId);
           }
         }
         return run;
@@ -121,9 +124,10 @@ export class MessageController {
 
       // Poll for completion or required actions
       let currentRun = await checkRunStatus(thread.id, initialRun.id);
-      while (currentRun.status === 'in_progress' || currentRun.status === 'queued') {
+      while (['in_progress', 'queued', 'requires_action'].includes(currentRun.status)) {
         await new Promise(resolve => setTimeout(resolve, 1000));
         currentRun = await checkRunStatus(thread.id, initialRun.id);
+        console.log('Updated run status:', currentRun.status); // Added for debugging
       }
 
       const messages = await this.openai.beta.threads.messages.list(thread.id);
