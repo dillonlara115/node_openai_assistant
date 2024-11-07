@@ -13,6 +13,17 @@ export class OpenaiVercelApplication extends BootMixin(
   constructor(options: ApplicationConfig = {}) {
     super(options);
 
+    // Configure CORS
+    this.bind('rest.config.cors').to({
+      origin: ['https://mixituponline.com', 'http://localhost:3000'],
+      methods: ['GET', 'HEAD', 'PUT', 'PATCH', 'POST', 'DELETE', 'OPTIONS'],
+      preflightContinue: false,
+      optionsSuccessStatus: 204,
+      maxAge: 86400,
+      allowedHeaders: ['Content-Type', 'Authorization', 'Accept'],
+      exposedHeaders: ['Content-Type'],
+      credentials: true
+    });
     this.projectRoot = __dirname;
     // Customize @loopback/boot Booter Conventions here
     this.bootOptions = {

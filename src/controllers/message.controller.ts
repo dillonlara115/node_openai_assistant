@@ -13,7 +13,21 @@ export class MessageController {
     return {message: 'Hello from LoopBack'};
   }
 
-  @post('/api/run-assistant')
+  @post('/api/run-assistant', {
+    responses: {
+      '200': {
+        description: 'Assistant Response',
+        content: {'application/json': {schema: {type: 'object'}}},
+      },
+    },
+    cors: {
+      origin: ['https://mixituponline.com', 'http://localhost:3000'],
+      methods: ['POST'],
+      allowedHeaders: ['Content-Type', 'Authorization', 'Accept'],
+      exposedHeaders: ['Content-Type'],
+      credentials: true,
+    }
+  })
   async runAssistant(
     @requestBody({
       content: {
