@@ -118,7 +118,7 @@ export class MessageController {
       };
 
       // Start the run
-      const initialRun = await this.openai.beta.threads.runs.create(thread.id, {
+      const initialRun = await this.openai.beta.threads.runs.createAndPoll(thread.id, {
         assistant_id: data.assistantId,
       });
 
