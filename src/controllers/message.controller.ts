@@ -48,7 +48,8 @@ export class MessageController {
             required: ['message', 'assistantId', 'apiKeyName', 'wordpressUrl', 'zapier_webhook_url'],
           },
         },
-      })
+      },
+    })
     data: {
       message: string;
       assistantId: string;
@@ -72,41 +73,60 @@ export class MessageController {
       this.openai = new OpenAI({apiKey, maxRetries: 4});
 
       let thread;
-      let isNewThread = false;
-
-      // Create or retrieve thread
       if (data.threadId && data.threadId !== '') {
         thread = await this.openai.beta.threads.retrieve(data.threadId);
+
+        // Check for existing runs
+        const runs = await this.openai.beta.threads.runs.list(thread.id);
+        const activeRun = runs.data.find(run =>
+          ['in_progress', 'queued', 'requires_action'].includes(run.status)
+        );
+
+        if (activeRun) {
+          console.log('Found active run:', activeRun.id);
+          // Cancel the existing run
+          try {
+            await this.openai.beta.threads.runs.cancel(thread.id, activeRun.id);
+            console.log('Cancelled existing run');
+
+            // Wait for cancellation to take effect
+            let cancelled = false;
+            for (let i = 0; i < 5; i++) { // Retry a few times to ensure cancellation is complete
+              await new Promise(resolve => setTimeout(resolve, 1000)); // Wait 1 second
+              const updatedRuns = await this.openai.beta.threads.runs.list(thread.id);
+              const stillActiveRun = updatedRuns.data.find(run =>
+                ['in_progress', 'queued', 'requires_action'].includes(run.status)
+              );
+              if (!stillActiveRun) {
+                cancelled = true;
+                break;
+              }
+            }
+
+            if (!cancelled) {
+              console.error('Failed to cancel existing run after multiple attempts, creating a new thread instead.');
+              thread = await this.openai.beta.threads.create();
+            }
+          } catch (error) {
+            console.error('Error cancelling run:', error);
+            // If we can't cancel, create a new thread instead
+            thread = await this.openai.beta.threads.create();
+          }
+        }
       } else {
         thread = await this.openai.beta.threads.create();
-        isNewThread = true;
       }
 
-      // If it's a new thread or a continued one, add the user message
-      if (isNewThread || (data.message && data.message.trim() !== '')) {
-        await this.openai.beta.threads.messages.create(thread.id, {
-          role: 'user',
-          content: data.message,
-        });
-      }
+      // Add the user message to the thread
+      await this.openai.beta.threads.messages.create(thread.id, {
+        role: 'user',
+        content: data.message,
+      });
 
-      // Check for existing runs in the thread
-      const runs = await this.openai.beta.threads.runs.list(thread.id);
-      const activeRun = runs.data.find(run =>
-        ['in_progress', 'queued', 'requires_action'].includes(run.status)
-      );
-
-      let currentRun;
-
-      // Use active run or create a new one if none exists
-      if (activeRun) {
-        console.log('Found active run:', activeRun.id);
-        currentRun = activeRun;
-      } else {
-        currentRun = await this.openai.beta.threads.runs.create(thread.id, {
-          assistant_id: data.assistantId,
-        });
-      }
+      // Start the run
+      let currentRun = await this.openai.beta.threads.runs.create(thread.id, {
+        assistant_id: data.assistantId,
+      });
 
       // Poll for completion or required actions
       while (['in_progress', 'queued', 'requires_action'].includes(currentRun.status)) {
@@ -119,7 +139,7 @@ export class MessageController {
         console.log('Updated run status:', currentRun.status);
       }
 
-      // Get the latest message from the assistant
+      // Get the latest message
       const messages = await this.openai.beta.threads.messages.list(thread.id);
       const lastMessage = messages.data[messages.data.length - 1]?.content[0];
       const messageContent = lastMessage && 'text' in lastMessage ? lastMessage.text.value : '';
@@ -138,7 +158,6 @@ export class MessageController {
       return {error: 'An error occurred while running the assistant'};
     }
   }
-
 
   // Define checkRunStatus as a method of the class
   private async checkRunStatus(
