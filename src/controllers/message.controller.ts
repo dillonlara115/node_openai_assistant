@@ -132,7 +132,12 @@ export class MessageController {
 
       if (toolCalls) {
         try {
-          // Set a timeout for tool calls processing
+          // Define proper type for tool outputs
+          type ToolOutput = {
+            tool_call_id: string;
+            output: string;
+          };
+
           const toolOutputs = await Promise.race([
             Promise.all(toolCalls.map(async (toolCall) => {
               console.log('Processing tool call:', toolCall.function.name);
@@ -144,31 +149,34 @@ export class MessageController {
                     ...args,
                     webhook_url: webhookUrl
                   },
-                  {timeout: 5000} // 5 second timeout for the API call
+                  {timeout: 5000}
                 );
 
                 return {
                   tool_call_id: toolCall.id,
                   output: JSON.stringify(response.data)
-                };
+                } as ToolOutput;  // Explicitly type the return value
               } catch (error) {
                 console.error('Tool call error:', error);
                 return {
                   tool_call_id: toolCall.id,
                   output: JSON.stringify({error: 'Failed to process tool call'})
-                };
+                } as ToolOutput;  // Explicitly type the return value
               }
             })),
             new Promise((_, reject) =>
               setTimeout(() => reject(new Error('Tool calls timeout')), 10000)
             )
-          ]);
+          ]) as ToolOutput[];  // Explicitly type the Promise.race result
 
           await this.openai.beta.threads.runs.submitToolOutputs(
             threadId,
             runId,
             {tool_outputs: toolOutputs}
           );
+
+          // Get updated run status after submitting tool outputs
+          return await this.openai.beta.threads.runs.retrieve(threadId, runId);
         } catch (error) {
           console.error('Error processing tool calls:', error);
           throw new Error('Failed to process tool calls: ' + error.message);
