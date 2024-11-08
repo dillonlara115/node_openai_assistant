@@ -89,9 +89,10 @@ export class MessageController {
 
 
       // Create a function to check run status
-      const checkRunStatus = async (threadId: string, runId: string) => {
+      const checkRunStatus = async (threadId: string, runId: string, webhookUrl: string) => {
         const run = await this.openai.beta.threads.runs.retrieve(threadId, runId);
         console.log('Run status:', run.status);
+        console.log('Webhook URL:', webhookUrl);
 
         if (run.status === 'requires_action') {
           const toolCalls = run.required_action?.submit_tool_outputs.tool_calls;
