@@ -21,7 +21,7 @@ export class MessageController {
       },
     },
     cors: {
-      origin: ['https://mixituponline.com', 'http://localhost:3000'],
+      origin: ['https://mixituponline.com', 'http://localhost:3000', 'https://glacial-bayou-78142-e7f743daa346.herokuapp.com'],
       methods: ['POST'],
       allowedHeaders: ['Content-Type', 'Authorization', 'Accept'],
       exposedHeaders: ['Content-Type'],

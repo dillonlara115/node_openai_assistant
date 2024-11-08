@@ -15,7 +15,7 @@ export class OpenaiVercelApplication extends BootMixin(
 
     // Configure CORS
     this.bind('rest.config.cors').to({
-      origin: ['https://mixituponline.com', 'http://localhost:3000'],
+      origin: ['https://mixituponline.com', 'http://localhost:3000', 'https://glacial-bayou-78142-e7f743daa346.herokuapp.com//api/run-assistant'],
       methods: ['GET', 'HEAD', 'PUT', 'PATCH', 'POST', 'DELETE', 'OPTIONS'],
       preflightContinue: false,
       optionsSuccessStatus: 204,
