@@ -45,9 +45,9 @@ export class MessageController {
               threadId: {type: 'string'},
               apiKeyName: {type: 'string'},
               wordpressUrl: {type: 'string'},
-              webhookUrl: {type: 'string'}
+              zapier_webhook_url: {type: 'string'}
             },
-            required: ['message', 'assistantId', 'apiKeyName', 'wordpressUrl', 'webhookUrl'],
+            required: ['message', 'assistantId', 'apiKeyName', 'wordpressUrl', 'zapier_webhook_url'],
           },
         },
       },
@@ -58,7 +58,7 @@ export class MessageController {
       threadId?: string;
       apiKeyName: string;
       wordpressUrl: string;
-      webhookUrl: string;
+      zapier_webhook_url: string;
     },
   ): Promise<object> {
     try {
@@ -89,10 +89,10 @@ export class MessageController {
 
 
       // Create a function to check run status
-      const checkRunStatus = async (threadId: string, runId: string, webhookUrl: string) => {
+      const checkRunStatus = async (threadId: string, runId: string, zapier_webhook_url: string) => {
         const run = await this.openai.beta.threads.runs.retrieve(threadId, runId);
         console.log('Run status:', run.status);
-        console.log('Webhook URL:', webhookUrl);
+        console.log('Webhook URL:', zapier_webhook_url);
 
         if (run.status === 'requires_action') {
           const toolCalls = run.required_action?.submit_tool_outputs.tool_calls;
@@ -146,10 +146,10 @@ export class MessageController {
       });
 
       // Poll for completion or required actions
-      let currentRun = await checkRunStatus(thread.id, initialRun.id, data.webhookUrl);
+      let currentRun = await checkRunStatus(thread.id, initialRun.id, data.zapier_webhook_url);
       while (['in_progress', 'queued', 'requires_action'].includes(currentRun.status)) {
         await new Promise(resolve => setTimeout(resolve, 1000));
-        currentRun = await checkRunStatus(thread.id, initialRun.id, data.webhookUrl);
+        currentRun = await checkRunStatus(thread.id, initialRun.id, data.zapier_webhook_url);
         console.log('Updated run status:', currentRun.status); // Added for debugging
       }
 
