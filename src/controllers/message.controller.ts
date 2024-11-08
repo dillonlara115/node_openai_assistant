@@ -2,10 +2,9 @@ import {get, post, requestBody} from '@loopback/rest';
 import axios from 'axios';
 import EventEmitter from 'events';
 import OpenAI from 'openai';
+import {RunSubmitToolOutputsParams} from 'openai/resources/beta/threads/runs/runs';
 
 export const assistantEvents = new EventEmitter();
-
-
 
 export class MessageController {
   private openai: OpenAI;
@@ -185,95 +184,38 @@ export class MessageController {
       });
 
       // Poll for completion or required actions
-      const checkRunStatus = async (threadId: string, runId: string, startTime: number, zapier_webhook_url: string) => {
-        const run = await this.openai.beta.threads.runs.retrieve(threadId, runId);
-        console.log('Run status:', run.status);
+      let currentRun = await this.openai.beta.threads.runs.create(thread.id, {
+        assistant_id: data.assistantId,
+      });
 
-        if (run.status === 'requires_action') {
-          const toolCalls = run.required_action?.submit_tool_outputs.tool_calls;
-          console.log('Tool calls:', toolCalls);
-
-          if (toolCalls) {
-            try {
-              const toolOutputs: RunSubmitToolOutputsParams.ToolOutput[] = await Promise.race([
-                Promise.all(toolCalls.map(async (toolCall) => {
-                  console.log('Processing tool call:', toolCall.function.name);
-                  try {
-                    const args = JSON.parse(toolCall.function.arguments);
-                    console.log('Sending request with args:', args);
-
-                    const requestBody = {
-                      ...args,
-                      webhook_url: zapier_webhook_url,
-                      report_type: 'brand_voice',
-                      status: 'pending'
-                    };
-
-                    console.log('Final request body:', requestBody);
-
-                    const response = await axios.post(
-                      'https://mixituponline.com/wp-json/brand-voice/v1/submit',
-                      requestBody,
-                      {
-                        timeout: 5000,
-                        headers: {
-                          'Content-Type': 'application/json',
-                          'Accept': 'application/json'
-                        }
-                      }
-                    );
-
-                    console.log('Response from server:', response.data);
-
-                    return {
-                      tool_call_id: toolCall.id,
-                      output: JSON.stringify(response.data)
-                    };
-                  } catch (error) {
-                    if (axios.isAxiosError(error)) {
-                      console.error('Axios error details:', {
-                        response: error.response?.data,
-                        status: error.response?.status,
-                        headers: error.response?.headers,
-                        config: error.config
-                      });
-                    }
-                    console.error('Tool call error:', error);
-                    return {
-                      tool_call_id: toolCall.id,
-                      output: JSON.stringify({
-                        error: 'Failed to process tool call',
-                        details: error.response?.data || error.message
-                      })
-                    };
-                  }
-                })),
-                new Promise((_, reject) =>
-                  setTimeout(() => reject(new Error('Tool calls timeout')), 10000)
-                )
-              ]);
-
-              await this.openai.beta.threads.runs.submitToolOutputs(
-                threadId,
-                runId,
-                {tool_outputs: toolOutputs}
-              );
-
-              return await this.openai.beta.threads.runs.retrieve(threadId, runId);
-            } catch (error) {
-              console.error('Error processing tool calls:', error);
-              throw new Error('Failed to process tool calls: ' + error.message);
-            }
-          }
-        }
-
-        if (Date.now() - startTime > this.TIMEOUT - 2000) {
+      while (['in_progress', 'queued', 'requires_action'].includes(currentRun.status)) {
+        if (Date.now() - startTime > this.TIMEOUT) {
           throw new Error('Operation timeout');
         }
 
-        return run;
-      };
+        await new Promise(resolve => setTimeout(resolve, this.POLL_INTERVAL));
+        currentRun = await checkRunStatus(thread.id, currentRun.id, startTime, data.zapier_webhook_url);
+        console.log('Updated run status:', currentRun.status);
+      }
 
+      const messages = await this.openai.beta.threads.messages.list(thread.id);
+      const lastMessage = messages.data[0]?.content[0];
+      const messageContent = lastMessage && 'text' in lastMessage ? lastMessage.text.value : '';
+
+      // Update the return structure to match what the chatbot expects
+      return {
+        success: true,
+        threadId: thread.id,
+        runId: currentRun.id,
+        status: currentRun.status,
+        allMessages: messages.data, // Changed from 'message' to 'response'
+        messages: [messageContent]  // Adding full messages array if needed
+      };
+    } catch (error) {
+      console.error('Error running assistant:', error);
+      return {error: 'An error occurred while running the assistant'};
+    }
+  }
 
   private async fetchApiKeyFromWordPress(wordpressUrl: string, apiKeyName: string): Promise<string | null> {
     console.log('Fetching API key from WordPress:', wordpressUrl, apiKeyName);
