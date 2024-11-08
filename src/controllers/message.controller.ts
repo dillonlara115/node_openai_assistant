@@ -1,6 +1,8 @@
 import {get, post, requestBody} from '@loopback/rest';
 import axios from 'axios';
 import OpenAI from 'openai';
+import type {RunSubmitToolOutputsParams} from 'openai/resources/beta/threads/runs/runs';
+
 
 export class MessageController {
   private openai: OpenAI;
@@ -132,13 +134,7 @@ export class MessageController {
 
       if (toolCalls) {
         try {
-          // Define proper type for tool outputs
-          type ToolOutput = {
-            tool_call_id: string;
-            output: string;
-          };
-
-          const toolOutputs = await Promise.race([
+          const toolOutputs: RunSubmitToolOutputsParams.ToolOutput[] = await Promise.race([
             Promise.all(toolCalls.map(async (toolCall) => {
               console.log('Processing tool call:', toolCall.function.name);
               try {
@@ -155,19 +151,19 @@ export class MessageController {
                 return {
                   tool_call_id: toolCall.id,
                   output: JSON.stringify(response.data)
-                } as ToolOutput;  // Explicitly type the return value
+                };
               } catch (error) {
                 console.error('Tool call error:', error);
                 return {
                   tool_call_id: toolCall.id,
                   output: JSON.stringify({error: 'Failed to process tool call'})
-                } as ToolOutput;  // Explicitly type the return value
+                };
               }
             })),
             new Promise((_, reject) =>
               setTimeout(() => reject(new Error('Tool calls timeout')), 10000)
             )
-          ]) as ToolOutput[];  // Explicitly type the Promise.race result
+          ]);
 
           await this.openai.beta.threads.runs.submitToolOutputs(
             threadId,
@@ -175,7 +171,6 @@ export class MessageController {
             {tool_outputs: toolOutputs}
           );
 
-          // Get updated run status after submitting tool outputs
           return await this.openai.beta.threads.runs.retrieve(threadId, runId);
         } catch (error) {
           console.error('Error processing tool calls:', error);
@@ -184,7 +179,6 @@ export class MessageController {
       }
     }
 
-    // Check if we're about to timeout
     if (Date.now() - startTime > this.TIMEOUT - 2000) {
       throw new Error('Operation timeout');
     }
