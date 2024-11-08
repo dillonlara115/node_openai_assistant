@@ -62,6 +62,7 @@ export class MessageController {
   ): Promise<object> {
     try {
       console.log('Received data:', data);
+      const startTime = Date.now();
 
       // Fetch the OpenAI API key from WordPress
       const apiKey = await this.fetchApiKeyFromWordPress(data.wordpressUrl, data.apiKeyName);
@@ -154,7 +155,7 @@ export class MessageController {
                 new Promise((_, reject) =>
                   setTimeout(() => reject(new Error('Tool calls timeout')), 10000)
                 )
-              ]);
+              ]) as RunSubmitToolOutputsParams.ToolOutput[];
 
               await this.openai.beta.threads.runs.submitToolOutputs(
                 threadId,
