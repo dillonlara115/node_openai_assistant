@@ -73,10 +73,30 @@ export class MessageController {
       // Initialize OpenAI client
       this.openai = new OpenAI({apiKey, maxRetries: 4});
 
-      // Get or create thread
       let thread;
       if (data.threadId && data.threadId !== '') {
         thread = await this.openai.beta.threads.retrieve(data.threadId);
+
+        // Check for existing runs
+        const runs = await this.openai.beta.threads.runs.list(thread.id);
+        const activeRun = runs.data.find(run =>
+          ['in_progress', 'queued', 'requires_action'].includes(run.status)
+        );
+
+        if (activeRun) {
+          console.log('Found active run:', activeRun.id);
+          // Cancel the existing run
+          try {
+            await this.openai.beta.threads.runs.cancel(thread.id, activeRun.id);
+            console.log('Cancelled existing run');
+            // Wait a moment for the cancellation to take effect
+            await new Promise(resolve => setTimeout(resolve, 1000));
+          } catch (error) {
+            console.error('Error cancelling run:', error);
+            // If we can't cancel, create a new thread instead
+            thread = await this.openai.beta.threads.create();
+          }
+        }
       } else {
         thread = await this.openai.beta.threads.create();
       }
