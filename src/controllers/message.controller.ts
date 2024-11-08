@@ -44,9 +44,10 @@ export class MessageController {
               assistantId: {type: 'string'},
               threadId: {type: 'string'},
               apiKeyName: {type: 'string'},
-              wordpressUrl: {type: 'string'}
+              wordpressUrl: {type: 'string'},
+              webhookUrl: {type: 'string'}
             },
-            required: ['message', 'assistantId', 'apiKeyName', 'wordpressUrl'],
+            required: ['message', 'assistantId', 'apiKeyName', 'wordpressUrl', 'webhookUrl'],
           },
         },
       },
@@ -57,6 +58,7 @@ export class MessageController {
       threadId?: string;
       apiKeyName: string;
       wordpressUrl: string;
+      webhookUrl: string;
     },
   ): Promise<object> {
     try {
