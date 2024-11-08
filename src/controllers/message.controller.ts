@@ -1,8 +1,6 @@
 import {get, post, requestBody} from '@loopback/rest';
 import axios from 'axios';
 import OpenAI from 'openai';
-import type {RunSubmitToolOutputsParams} from 'openai/resources/beta/threads/runs/runs';
-
 
 export class MessageController {
   private openai: OpenAI;
@@ -97,7 +95,7 @@ export class MessageController {
         }
 
         await new Promise(resolve => setTimeout(resolve, this.POLL_INTERVAL));
-        currentRun = await this.checkRunStatus(thread.id, currentRun.id, startTime, data.webhookUrl);
+        currentRun = await this.checkRunStatus(thread.id, currentRun.id, startTime);
         console.log('Updated run status:', currentRun.status);
       }
 
@@ -124,7 +122,7 @@ export class MessageController {
     }
   }
 
-  private async checkRunStatus(threadId: string, runId: string, startTime: number, webhookUrl: string) {
+  private async checkRunStatus(threadId: string, runId: string, startTime: number) {
     const run = await this.openai.beta.threads.runs.retrieve(threadId, runId);
     console.log('Run status:', run.status);
 
@@ -134,7 +132,8 @@ export class MessageController {
 
       if (toolCalls) {
         try {
-          const toolOutputs: RunSubmitToolOutputsParams.ToolOutput[] = await Promise.race([
+          // Set a timeout for tool calls processing
+          const toolOutputs = await Promise.race([
             Promise.all(toolCalls.map(async (toolCall) => {
               console.log('Processing tool call:', toolCall.function.name);
               try {
@@ -143,9 +142,9 @@ export class MessageController {
                   'https://mixituponline.com/wp-json/brand-voice/v1/submit',
                   {
                     ...args,
-                    webhook_url: webhookUrl
+                    webhook_url: process.env.ZAPIER_WEBHOOK_URL || 'https://hooks.zapier.com/hooks/catch/YOUR_WEBHOOK'
                   },
-                  {timeout: 5000}
+                  {timeout: 5000} // 5 second timeout for the API call
                 );
 
                 return {
@@ -170,8 +169,6 @@ export class MessageController {
             runId,
             {tool_outputs: toolOutputs}
           );
-
-          return await this.openai.beta.threads.runs.retrieve(threadId, runId);
         } catch (error) {
           console.error('Error processing tool calls:', error);
           throw new Error('Failed to process tool calls: ' + error.message);
@@ -179,6 +176,7 @@ export class MessageController {
       }
     }
 
+    // Check if we're about to timeout
     if (Date.now() - startTime > this.TIMEOUT - 2000) {
       throw new Error('Operation timeout');
     }
