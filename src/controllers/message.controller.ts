@@ -2,6 +2,7 @@ import {get, post, requestBody} from '@loopback/rest';
 import axios from 'axios';
 import EventEmitter from 'events';
 import OpenAI from 'openai';
+import {RunSubmitToolOutputsParams} from 'openai/resources/beta/threads/runs/runs';
 
 export const assistantEvents = new EventEmitter();
 
@@ -9,7 +10,6 @@ export class MessageController {
   private openai: OpenAI;
   private readonly TIMEOUT = 25000; // 25 seconds to stay under Heroku's 30s limit
   private readonly POLL_INTERVAL = 1000; // 1 second between status checks
-
 
   @get('/api/message')
   message(): object {
@@ -135,11 +135,7 @@ export class MessageController {
         }
 
         await new Promise(resolve => setTimeout(resolve, this.POLL_INTERVAL));
-        currentRun = await this.openai.beta.threads.runs.retrieve(thread.id, currentRun.id);
-
-        if (currentRun.status === 'requires_action') {
-          currentRun = await this.checkRunStatus(thread.id, currentRun.id, startTime, data.zapier_webhook_url);
-        }
+        currentRun = await this.checkRunStatus(thread.id, currentRun.id, startTime, data.zapier_webhook_url);
         console.log('Updated run status:', currentRun.status);
       }
 
@@ -154,8 +150,8 @@ export class MessageController {
         threadId: thread.id,
         runId: currentRun.id,
         status: currentRun.status,
-        allMessages: messages.data, // Changed from 'message' to 'response'
-        messages: [messageContent]  // Adding full messages array if needed
+        allMessages: messages.data,
+        messages: [messageContent]
       };
     } catch (error) {
       console.error('Error running assistant:', error);
@@ -163,6 +159,100 @@ export class MessageController {
     }
   }
 
+  // Define checkRunStatus as a method of the class
+  private async checkRunStatus(
+    threadId: string,
+    runId: string,
+    startTime: number,
+    zapier_webhook_url: string
+  ): Promise<any> {
+    const run = await this.openai.beta.threads.runs.retrieve(threadId, runId);
+    console.log('Run status:', run.status);
+
+    if (run.status === 'requires_action') {
+      const toolCalls = run.required_action?.submit_tool_outputs.tool_calls;
+      console.log('Tool calls:', toolCalls);
+
+      if (toolCalls) {
+        try {
+          const toolOutputs: RunSubmitToolOutputsParams.ToolOutput[] = await Promise.race([
+            Promise.all(toolCalls.map(async (toolCall) => {
+              console.log('Processing tool call:', toolCall.function.name);
+              try {
+                const args = JSON.parse(toolCall.function.arguments);
+                console.log('Sending request with args:', args);
+
+                const requestBody = {
+                  ...args,
+                  webhook_url: zapier_webhook_url,
+                  report_type: 'brand_voice',
+                  status: 'pending'
+                };
+
+                console.log('Final request body:', requestBody);
+
+                const response = await axios.post(
+                  'https://mixituponline.com/wp-json/brand-voice/v1/submit',
+                  requestBody,
+                  {
+                    timeout: 5000,
+                    headers: {
+                      'Content-Type': 'application/json',
+                      'Accept': 'application/json'
+                    }
+                  }
+                );
+
+                console.log('Response from server:', response.data);
+
+                return {
+                  tool_call_id: toolCall.id,
+                  output: JSON.stringify(response.data)
+                };
+              } catch (error) {
+                if (axios.isAxiosError(error)) {
+                  console.error('Axios error details:', {
+                    response: error.response?.data,
+                    status: error.response?.status,
+                    headers: error.response?.headers,
+                    config: error.config
+                  });
+                }
+                console.error('Tool call error:', error);
+                return {
+                  tool_call_id: toolCall.id,
+                  output: JSON.stringify({
+                    error: 'Failed to process tool call',
+                    details: error.response?.data || error.message
+                  })
+                };
+              }
+            })),
+            new Promise((_, reject) =>
+              setTimeout(() => reject(new Error('Tool calls timeout')), 10000)
+            )
+          ]) as RunSubmitToolOutputsParams.ToolOutput[];
+
+          await this.openai.beta.threads.runs.submitToolOutputs(
+            threadId,
+            runId,
+            {tool_outputs: toolOutputs}
+          );
+
+          return await this.openai.beta.threads.runs.retrieve(threadId, runId);
+        } catch (error) {
+          console.error('Error processing tool calls:', error);
+          throw new Error('Failed to process tool calls: ' + error.message);
+        }
+      }
+    }
+
+    if (Date.now() - startTime > this.TIMEOUT - 2000) {
+      throw new Error('Operation timeout');
+    }
+
+    return run;
+  }
 
   private async fetchApiKeyFromWordPress(wordpressUrl: string, apiKeyName: string): Promise<string | null> {
     console.log('Fetching API key from WordPress:', wordpressUrl, apiKeyName);
