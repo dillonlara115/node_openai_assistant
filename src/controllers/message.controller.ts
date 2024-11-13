@@ -4,13 +4,15 @@ import EventEmitter from 'events';
 import OpenAI from 'openai';
 import {RunSubmitToolOutputsParams} from 'openai/resources/beta/threads/runs/runs';
 
+// In-memory lock set to prevent concurrent thread creation (use Redis or another store for distributed systems)
+const threadLocks = new Set<string>();
+
 export const assistantEvents = new EventEmitter();
 
 export class MessageController {
   private openai: OpenAI;
   private readonly TIMEOUT = 25000; // 25 seconds to stay under Heroku's 30s limit
   private readonly POLL_INTERVAL = 1000; // 1 second between status checks
-
 
   @get('/api/message')
   message(): object {
@@ -25,12 +27,16 @@ export class MessageController {
       },
     },
     cors: {
-      origin: ['https://mixituponline.com', 'http://localhost:3000', 'https://glacial-bayou-78142-e7f743daa346.herokuapp.com'],
+      origin: [
+        'https://mixituponline.com',
+        'http://localhost:3000',
+        'https://glacial-bayou-78142-e7f743daa346.herokuapp.com',
+      ],
       methods: ['POST'],
       allowedHeaders: ['Content-Type', 'Authorization', 'Accept'],
       exposedHeaders: ['Content-Type'],
       credentials: true,
-    }
+    },
   })
   async runAssistant(
     @requestBody({
@@ -44,7 +50,7 @@ export class MessageController {
               threadId: {type: 'string'},
               apiKeyName: {type: 'string'},
               wordpressUrl: {type: 'string'},
-              zapier_webhook_url: {type: 'string'}
+              zapier_webhook_url: {type: 'string'},
             },
             required: ['message', 'assistantId', 'apiKeyName', 'wordpressUrl', 'zapier_webhook_url'],
           },
@@ -73,13 +79,8 @@ export class MessageController {
       // Initialize OpenAI client
       this.openai = new OpenAI({apiKey, maxRetries: 4});
 
-      // Get or create thread
-      let thread;
-      if (data.threadId && data.threadId !== '') {
-        thread = await this.openai.beta.threads.retrieve(data.threadId);
-      } else {
-        thread = await this.openai.beta.threads.create();
-      }
+      // Retrieve or create thread with locking
+      const thread = await this.getThreadWithLock(data);
 
       // Add the user message to the thread
       await this.openai.beta.threads.messages.create(thread.id, {
@@ -87,20 +88,120 @@ export class MessageController {
         content: data.message,
       });
 
+      // Start the run
+      const initialRun = await this.openai.beta.threads.runs.createAndPoll(thread.id, {
+        assistant_id: data.assistantId,
+      });
 
-      // Create a function to check run status
-      const checkRunStatus = async (threadId: string, runId: string, startTime: number, zapier_webhook_url: string) => {
-        const run = await this.openai.beta.threads.runs.retrieve(threadId, runId);
-        console.log('Run status:', run.status);
+      // Poll for completion or required actions
+      let currentRun = initialRun;
+      while (['in_progress', 'queued', 'requires_action'].includes(currentRun.status)) {
+        if (Date.now() - startTime > this.TIMEOUT) {
+          throw new Error('Operation timeout');
+        }
 
-        if (run.status === 'requires_action') {
-          const toolCalls = run.required_action?.submit_tool_outputs.tool_calls;
-          console.log('Tool calls:', toolCalls);
+        await new Promise((resolve) => setTimeout(resolve, this.POLL_INTERVAL));
+        currentRun = await this.checkRunStatus(
+          thread.id,
+          currentRun.id,
+          startTime,
+          data.zapier_webhook_url,
+        );
+        console.log('Updated run status:', currentRun.status);
+      }
 
-          if (toolCalls) {
-            try {
-              const toolOutputs: RunSubmitToolOutputsParams.ToolOutput[] = await Promise.race([
-                Promise.all(toolCalls.map(async (toolCall) => {
+      const messages = await this.openai.beta.threads.messages.list(thread.id);
+      const lastMessage = messages.data[messages.data.length - 1]?.content[0];
+      const messageContent = lastMessage && 'text' in lastMessage ? lastMessage.text.value : '';
+
+      // Update the return structure to match what the chatbot expects
+      return {
+        success: true,
+        threadId: thread.id,
+        runId: currentRun.id,
+        status: currentRun.status,
+        allMessages: messages.data, // Changed from 'message' to 'response'
+        messages: [messageContent], // Adding full messages array if needed
+      };
+    } catch (error) {
+      console.error('Error running assistant:', error);
+      return {error: 'An error occurred while running the assistant'};
+    }
+  }
+
+  /**
+   * Retrieves an existing thread or creates a new one with proper locking to prevent race conditions.
+   * @param data The input data containing threadId and assistant information.
+   * @returns The retrieved or newly created thread.
+   */
+  private async getThreadWithLock(data: {
+    threadId?: string;
+    assistantId: string;
+  }): Promise<any> {
+    const threadKey = data.assistantId; // Use a unique key per assistant or user session
+
+    // Simple in-memory lock (not suitable for distributed systems)
+    while (threadLocks.has(threadKey)) {
+      console.log(`Thread lock active for key: ${threadKey}. Waiting...`);
+      await new Promise((resolve) => setTimeout(resolve, 100)); // Wait 100ms before retrying
+    }
+
+    threadLocks.add(threadKey);
+    try {
+      if (data.threadId && data.threadId.trim() !== '') {
+        try {
+          const existingThread = await this.openai.beta.threads.retrieve(data.threadId);
+          console.log(`Retrieved existing thread with ID: ${data.threadId}`);
+          return existingThread;
+        } catch (error) {
+          console.warn(
+            `Failed to retrieve thread with ID ${data.threadId}. Creating a new thread.`,
+            error,
+          );
+          // Proceed to create a new thread
+        }
+      }
+
+      // Create a new thread if threadId is not provided or retrieval failed
+      const newThread = await this.openai.beta.threads.create();
+      console.log(`Created new thread with ID: ${newThread.id}`);
+      return newThread;
+    } catch (error) {
+      console.error('Error in getThreadWithLock:', error);
+      throw new Error('Failed to retrieve or create thread');
+    } finally {
+      threadLocks.delete(threadKey);
+      console.log(`Released thread lock for key: ${threadKey}`);
+    }
+  }
+
+  /**
+   * Checks the status of a run and processes tool calls if required.
+   * @param threadId The ID of the thread.
+   * @param runId The ID of the run.
+   * @param startTime The timestamp when the operation started.
+   * @param zapier_webhook_url The webhook URL for Zapier.
+   * @returns The updated run object.
+   */
+  private async checkRunStatus(
+    threadId: string,
+    runId: string,
+    startTime: number,
+    zapier_webhook_url: string,
+  ): Promise<any> {
+    try {
+      const run = await this.openai.beta.threads.runs.retrieve(threadId, runId);
+      console.log('Run status:', run.status);
+
+      if (run.status === 'requires_action') {
+        const toolCalls = run.required_action?.submit_tool_outputs.tool_calls;
+        console.log('Tool calls:', toolCalls);
+
+        if (toolCalls && toolCalls.length > 0) {
+          try {
+            const toolOutputs: RunSubmitToolOutputsParams.ToolOutput[] = await Promise.race([
+              Promise.all(
+                toolCalls.map(async (toolCall) => {
                   console.log('Processing tool call:', toolCall.function.name);
                   try {
                     const args = JSON.parse(toolCall.function.arguments);
@@ -110,7 +211,7 @@ export class MessageController {
                       ...args,
                       webhook_url: zapier_webhook_url,
                       report_type: 'brand_voice',
-                      status: 'pending'
+                      status: 'pending',
                     };
 
                     console.log('Final request body:', requestBody);
@@ -122,16 +223,16 @@ export class MessageController {
                         timeout: 5000,
                         headers: {
                           'Content-Type': 'application/json',
-                          'Accept': 'application/json'
-                        }
-                      }
+                          Accept: 'application/json',
+                        },
+                      },
                     );
 
                     console.log('Response from server:', response.data);
 
                     return {
                       tool_call_id: toolCall.id,
-                      output: JSON.stringify(response.data)
+                      output: JSON.stringify(response.data),
                     };
                   } catch (error) {
                     if (axios.isAxiosError(error)) {
@@ -139,7 +240,7 @@ export class MessageController {
                         response: error.response?.data,
                         status: error.response?.status,
                         headers: error.response?.headers,
-                        config: error.config
+                        config: error.config,
                       });
                     }
                     console.error('Tool call error:', error);
@@ -147,89 +248,72 @@ export class MessageController {
                       tool_call_id: toolCall.id,
                       output: JSON.stringify({
                         error: 'Failed to process tool call',
-                        details: error.response?.data || error.message
-                      })
+                        details: error.response?.data || error.message,
+                      }),
                     };
                   }
-                })),
-                new Promise((_, reject) =>
-                  setTimeout(() => reject(new Error('Tool calls timeout')), 10000)
-                )
-              ]) as RunSubmitToolOutputsParams.ToolOutput[];
+                }),
+              ),
+              new Promise<RunSubmitToolOutputsParams.ToolOutput[]>((_, reject) =>
+                setTimeout(() => reject(new Error('Tool calls timeout')), 10000),
+              ),
+            ]) as RunSubmitToolOutputsParams.ToolOutput[];
 
-              await this.openai.beta.threads.runs.submitToolOutputs(
-                threadId,
-                runId,
-                {tool_outputs: toolOutputs}
-              );
+            await this.openai.beta.threads.runs.submitToolOutputs(threadId, runId, {
+              tool_outputs: toolOutputs,
+            });
 
-              return await this.openai.beta.threads.runs.retrieve(threadId, runId);
-            } catch (error) {
-              console.error('Error processing tool calls:', error);
-              throw new Error('Failed to process tool calls: ' + error.message);
-            }
+            console.log('Submitted tool outputs successfully.');
+
+            return await this.openai.beta.threads.runs.retrieve(threadId, runId);
+          } catch (error) {
+            console.error('Error processing tool calls:', error);
+            throw new Error('Failed to process tool calls: ' + error.message);
           }
         }
-
-        if (Date.now() - startTime > this.TIMEOUT - 2000) {
-          throw new Error('Operation timeout');
-        }
-
-        return run;
-      };
-
-
-      // Start the run
-      const initialRun = await this.openai.beta.threads.runs.createAndPoll(thread.id, {
-        assistant_id: data.assistantId,
-      });
-
-      // Poll for completion or required actions
-      let currentRun = await this.openai.beta.threads.runs.create(thread.id, {
-        assistant_id: data.assistantId,
-      });
-
-      while (['in_progress', 'queued', 'requires_action'].includes(currentRun.status)) {
-        if (Date.now() - startTime > this.TIMEOUT) {
-          throw new Error('Operation timeout');
-        }
-
-        await new Promise(resolve => setTimeout(resolve, this.POLL_INTERVAL));
-        currentRun = await checkRunStatus(thread.id, currentRun.id, startTime, data.zapier_webhook_url);
-        console.log('Updated run status:', currentRun.status);
       }
 
-      const messages = await this.openai.beta.threads.messages.list(thread.id);
-      const lastMessage = messages.data[0]?.content[0];
-      const messageContent = lastMessage && 'text' in lastMessage ? lastMessage.text.value : '';
+      if (Date.now() - startTime > this.TIMEOUT - 2000) {
+        throw new Error('Operation timeout');
+      }
 
-      // Update the return structure to match what the chatbot expects
-      return {
-        success: true,
-        threadId: thread.id,
-        runId: currentRun.id,
-        status: currentRun.status,
-        allMessages: messages.data, // Changed from 'message' to 'response'
-        messages: [messageContent]  // Adding full messages array if needed
-      };
+      return run;
     } catch (error) {
-      console.error('Error running assistant:', error);
-      return {error: 'An error occurred while running the assistant'};
+      console.error('Error in checkRunStatus:', error);
+      throw error;
     }
   }
 
-  private async fetchApiKeyFromWordPress(wordpressUrl: string, apiKeyName: string): Promise<string | null> {
+  /**
+   * Fetches the OpenAI API key from WordPress.
+   * @param wordpressUrl The base URL of the WordPress site.
+   * @param apiKeyName The name of the API key to fetch.
+   * @returns The API key as a string or null if not found.
+   */
+  private async fetchApiKeyFromWordPress(
+    wordpressUrl: string,
+    apiKeyName: string,
+  ): Promise<string | null> {
     console.log('Fetching API key from WordPress:', wordpressUrl, apiKeyName);
     try {
       const response = await axios.get(
         `${wordpressUrl}/wp-json/gpt-chat/v1/api-keys`,
         {
           params: {gpt_chat_api_key_name: apiKeyName},
-        }
+          timeout: 5000, // Optional: Add a timeout to prevent hanging
+        },
       );
       console.log('API key fetch response:', response.data.apiKey);
       return response.data.apiKey || null;
     } catch (error) {
+      if (axios.isAxiosError(error)) {
+        console.error('Axios error details:', {
+          response: error.response?.data,
+          status: error.response?.status,
+          headers: error.response?.headers,
+          config: error.config,
+        });
+      }
       console.error('Failed to fetch API key from WordPress:', error);
       return null;
     }
