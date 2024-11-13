@@ -110,18 +110,27 @@ export class MessageController {
         console.log('Updated run status:', currentRun.status);
       }
 
+      // Retrieve all messages from the thread
       const messages = await this.openai.beta.threads.messages.list(thread.id);
-      const lastMessage = messages.data[messages.data.length - 1]?.content[0];
-      const messageContent = lastMessage && 'text' in lastMessage ? lastMessage.text.value : '';
 
-      // Update the return structure to match what the chatbot expects
+      // Extract the latest assistant message
+      const latestAssistantMessage = messages.data
+        .filter((msg) => msg.role === 'assistant')
+        .pop()?.content[0];
+
+      const messageContent =
+        latestAssistantMessage && 'text' in latestAssistantMessage
+          ? latestAssistantMessage.text.value
+          : 'No assistant response available.';
+
+      // Update the return structure to include the latest assistant message
       return {
         success: true,
         threadId: thread.id,
         runId: currentRun.id,
         status: currentRun.status,
-        allMessages: messages.data, // Changed from 'message' to 'response'
-        messages: [messageContent], // Adding full messages array if needed
+        allMessages: messages.data, // All messages in the thread
+        messages: [messageContent], // Latest assistant message
       };
     } catch (error) {
       console.error('Error running assistant:', error);
