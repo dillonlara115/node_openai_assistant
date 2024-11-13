@@ -113,10 +113,12 @@ export class MessageController {
       // Retrieve all messages from the thread
       const messages = await this.openai.beta.threads.messages.list(thread.id);
 
-      // Extract the latest assistant message
+      // Log all messages for debugging
+      console.log('All Messages:', JSON.stringify(messages.data, null, 2));
+
+      // Extract the latest assistant message using .find()
       const latestAssistantMessage = messages.data
-        .filter((msg) => msg.role === 'assistant')
-        .pop()?.content[0];
+        .find((msg) => msg.role === 'assistant')?.content[0];
 
       const messageContent =
         latestAssistantMessage && 'text' in latestAssistantMessage
