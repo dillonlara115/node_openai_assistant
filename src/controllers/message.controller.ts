@@ -9,32 +9,6 @@ const threadLocks = new Set<string>();
 
 export const assistantEvents = new EventEmitter();
 
-// Define interfaces for message content types
-interface TextContentBlock {
-  type: 'text';
-  text?: {
-    value: string;
-    annotations: any[];
-  };
-}
-
-interface ImageFileContentBlock {
-  type: 'image';
-  image_url?: string;
-  // Add other relevant properties if needed
-}
-
-type MessageContent = TextContentBlock | ImageFileContentBlock;
-
-/**
- * Type guard to check if a content item is of type TextContentBlock
- * @param contentItem The message content item
- * @returns True if it's a TextContentBlock, else false
- */
-function isTextContent(contentItem: MessageContent): contentItem is TextContentBlock {
-  return contentItem.type === 'text' && contentItem.text !== undefined;
-}
-
 export class MessageController {
   private openai: OpenAI;
   private readonly TIMEOUT = 30000; // Increased timeout to 30 seconds
@@ -142,29 +116,27 @@ export class MessageController {
       const messages = await this.openai.beta.threads.messages.list(thread.id);
       console.log('All Messages:', JSON.stringify(messages.data, null, 2));
 
-      // Extract all assistant messages and concatenate their text content using the type guard
-      const assistantResponses = messages.data.filter(msg => msg.role === 'assistant');
+      // Extract the latest assistant message correctly
+      const latestAssistantMessage = messages.data
+        .slice()
+        .reverse()
+        .find((msg) => msg.role === 'assistant')?.content[0];
 
-      const response = assistantResponses.map(msg =>
-        msg.content
-          .filter(isTextContent) // Use the type guard here
-          .map(textContent => textContent.text.value)
-          .join('\n') // Join multiple text contents within the same message
-      ).join('\n'); // Join multiple assistant messages
+      const messageContent =
+        latestAssistantMessage && 'text' in latestAssistantMessage
+          ? latestAssistantMessage.text.value
+          : 'No assistant response available.';
 
-      // Fallback in case no assistant messages are found
-      const aggregatedResponse = response || 'No assistant response available.';
+      console.log('Latest Assistant Message:', messageContent);
 
-      console.log('Aggregated Assistant Response:', aggregatedResponse);
-
-      // Return all messages and the aggregated assistant messages
+      // Return all messages and the latest assistant message
       return {
         success: true,
         threadId: thread.id,
         runId: currentRun.id,
         status: currentRun.status,
         allMessages: messages.data, // All messages in the thread
-        messages: [aggregatedResponse], // Aggregated assistant messages
+        messages: [messageContent], // Latest assistant message
       };
     } catch (error) {
       console.error('Error running assistant:', error);
