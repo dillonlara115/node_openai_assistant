@@ -116,18 +116,20 @@ export class MessageController {
       const messages = await this.openai.beta.threads.messages.list(thread.id);
       console.log('All Messages:', JSON.stringify(messages.data, null, 2));
 
-      // Extract the latest assistant message correctly
-      const latestAssistantMessage = messages.data
-        .slice()
-        .reverse()
-        .find((msg) => msg.role === 'assistant')?.content[0];
+      // Filter all assistant messages
+      const assistantResponses = messages.data.filter(msg => msg.role === 'assistant');
 
-      const messageContent =
-        latestAssistantMessage && 'text' in latestAssistantMessage
-          ? latestAssistantMessage.text.value
-          : 'No assistant response available.';
+      // Map and extract text content from each assistant message
+      const response = assistantResponses.map(msg =>
+        msg.content
+          .filter(contentItem => contentItem.type === 'text')
+          .map(textContent => textContent.text.value)
+          .join('\n') // Join multiple text contents within the same message
+      ).join('\n'); // Join multiple assistant messages
 
-      console.log('Latest Assistant Message:', messageContent);
+      // Fallback in case no assistant messages are found
+      const aggregatedResponse = response || 'No assistant response available.';
+
 
       // Return all messages and the latest assistant message
       return {
@@ -136,7 +138,7 @@ export class MessageController {
         runId: currentRun.id,
         status: currentRun.status,
         allMessages: messages.data, // All messages in the thread
-        messages: [messageContent], // Latest assistant message
+        messages: [aggregatedResponse], // Aggregated assistant messages
       };
     } catch (error) {
       console.error('Error running assistant:', error);
