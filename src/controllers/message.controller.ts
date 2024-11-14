@@ -11,7 +11,7 @@ export const assistantEvents = new EventEmitter();
 
 export class MessageController {
   private openai: OpenAI;
-  private readonly TIMEOUT = 25000; // 25 seconds to stay under Heroku's 30s limit
+  private readonly TIMEOUT = 30000; // Increased timeout to 30 seconds
   private readonly POLL_INTERVAL = 1000; // 1 second between status checks
 
   @get('/api/message')
@@ -87,11 +87,13 @@ export class MessageController {
         role: 'user',
         content: data.message,
       });
+      console.log('Added user message to thread.');
 
       // Start the run
       const initialRun = await this.openai.beta.threads.runs.createAndPoll(thread.id, {
         assistant_id: data.assistantId,
       });
+      console.log('Run initiated with status:', initialRun.status);
 
       // Poll for completion or required actions
       let currentRun = initialRun;
@@ -112,12 +114,12 @@ export class MessageController {
 
       // Retrieve all messages from the thread
       const messages = await this.openai.beta.threads.messages.list(thread.id);
-
-      // Log all messages for debugging
       console.log('All Messages:', JSON.stringify(messages.data, null, 2));
 
-      // Extract the latest assistant message using .find()
+      // Extract the latest assistant message correctly
       const latestAssistantMessage = messages.data
+        .slice()
+        .reverse()
         .find((msg) => msg.role === 'assistant')?.content[0];
 
       const messageContent =
@@ -125,7 +127,9 @@ export class MessageController {
           ? latestAssistantMessage.text.value
           : 'No assistant response available.';
 
-      // Update the return structure to include the latest assistant message
+      console.log('Latest Assistant Message:', messageContent);
+
+      // Return all messages and the latest assistant message
       return {
         success: true,
         threadId: thread.id,
