@@ -108,6 +108,7 @@ export class MessageController {
           currentRun.id,
           startTime,
           data.zapier_webhook_url,
+          data.wordpressUrl,
         );
         console.log('Updated run status:', currentRun.status);
       }
@@ -202,6 +203,7 @@ export class MessageController {
     runId: string,
     startTime: number,
     zapier_webhook_url: string,
+    wordpressUrl: string,
   ): Promise<any> {
     try {
       const run = await this.openai.beta.threads.runs.retrieve(threadId, runId);
@@ -224,14 +226,14 @@ export class MessageController {
                     const requestBody = {
                       ...args,
                       webhook_url: zapier_webhook_url,
-                      report_type: 'brand_voice',
+                      report_type: 'mixituponline',
                       status: 'pending',
                     };
 
                     console.log('Final request body:', requestBody);
 
                     const response = await axios.post(
-                      'https://mixituponline.com/wp-json/brand-voice/v1/submit',
+                      '${data.wordpressUrl}/wp-json/brand-voice/v1/submit',
                       requestBody,
                       {
                         timeout: 5000,
