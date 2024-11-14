@@ -12,7 +12,7 @@ export const assistantEvents = new EventEmitter();
 // Define interfaces for message content types
 interface TextContentBlock {
   type: 'text';
-  text: {
+  text?: {
     value: string;
     annotations: any[];
   };
@@ -20,7 +20,7 @@ interface TextContentBlock {
 
 interface ImageFileContentBlock {
   type: 'image';
-  image_url: string;
+  image_url?: string;
   // Add other relevant properties if needed
 }
 
@@ -32,7 +32,7 @@ type MessageContent = TextContentBlock | ImageFileContentBlock;
  * @returns True if it's a TextContentBlock, else false
  */
 function isTextContent(contentItem: MessageContent): contentItem is TextContentBlock {
-  return contentItem.type === 'text';
+  return contentItem.type === 'text' && contentItem.text !== undefined;
 }
 
 export class MessageController {
