@@ -118,9 +118,8 @@ export class MessageController {
 
       // Extract the latest assistant message correctly
       const latestAssistantMessage = messages.data
-        .slice()
-        .reverse()
-        .find((msg) => msg.role === 'assistant')?.content[0];
+        .filter((msg) => msg.role === 'assistant')
+        .sort((a, b) => b.created_at - a.created_at)[0]?.content[0];
 
       const messageContent =
         latestAssistantMessage && 'text' in latestAssistantMessage
