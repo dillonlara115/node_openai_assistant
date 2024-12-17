@@ -233,7 +233,7 @@ export class MessageController {
                     console.log('Final request body:', requestBody);
 
                     const response = await axios.post(
-                      '${data.wordpressUrl}/wp-json/brand-voice/v1/submit',
+                      `${wordpressUrl}/wp-json/brand-voice/v1/submit`,
                       requestBody,
                       {
                         timeout: 5000,
